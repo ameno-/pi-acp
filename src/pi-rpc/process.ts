@@ -6,9 +6,16 @@ type PiRpcCommand =
   | { type: "abort"; id?: string }
   | { type: "get_state"; id?: string }
 
-type PiRpcResponse = { type: "response"; id: string; ok: boolean; result?: unknown; error?: unknown }
+type PiRpcResponse = {
+  type: "response"
+  id?: string
+  command: string
+  success: boolean
+  data?: unknown
+  error?: string
+}
 
-type PiRpcEvent = Record<string, unknown>
+export type PiRpcEvent = Record<string, unknown>
 
 type SpawnParams = {
   cwd: string
@@ -34,15 +41,19 @@ export class PiRpcProcess {
         return
       }
 
-      if (msg?.type === "response" && typeof msg.id === "string") {
-        const pending = this.pending.get(msg.id)
-        if (pending) {
-          this.pending.delete(msg.id)
-          pending.resolve(msg as PiRpcResponse)
+      if (msg?.type === "response") {
+        const id = typeof msg.id === "string" ? msg.id : undefined
+        if (id) {
+          const pending = this.pending.get(id)
+          if (pending) {
+            this.pending.delete(id)
+            pending.resolve(msg as PiRpcResponse)
+            return
+          }
         }
-      } else {
-        for (const h of this.eventHandlers) h(msg as PiRpcEvent)
       }
+
+      for (const h of this.eventHandlers) h(msg as PiRpcEvent)
     })
 
     child.on("exit", (code, signal) => {
@@ -76,24 +87,27 @@ export class PiRpcProcess {
     return proc
   }
 
-  onEvent(handler: (ev: PiRpcEvent) => void) {
+  onEvent(handler: (ev: PiRpcEvent) => void): () => void {
     this.eventHandlers.push(handler)
+    return () => {
+      this.eventHandlers = this.eventHandlers.filter((h) => h !== handler)
+    }
   }
 
   async prompt(message: string): Promise<void> {
     const res = await this.request({ type: "prompt", message })
-    if (!res.ok) throw new Error(`pi prompt failed: ${JSON.stringify(res.error ?? res.result)}`)
+    if (!res.success) throw new Error(`pi prompt failed: ${res.error ?? JSON.stringify(res.data)}`)
   }
 
   async abort(): Promise<void> {
     const res = await this.request({ type: "abort" })
-    if (!res.ok) throw new Error(`pi abort failed: ${JSON.stringify(res.error ?? res.result)}`)
+    if (!res.success) throw new Error(`pi abort failed: ${res.error ?? JSON.stringify(res.data)}`)
   }
 
   async getState(): Promise<unknown> {
     const res = await this.request({ type: "get_state" })
-    if (!res.ok) throw new Error(`pi get_state failed: ${JSON.stringify(res.error ?? res.result)}`)
-    return res.result
+    if (!res.success) throw new Error(`pi get_state failed: ${res.error ?? JSON.stringify(res.data)}`)
+    return res.data
   }
 
   private request(cmd: PiRpcCommand): Promise<PiRpcResponse> {
