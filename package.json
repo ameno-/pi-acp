@@ -1,13 +1,16 @@
 {
   "name": "pi-acp",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.0.9",
   "description": "ACP adapter for pi coding agent",
   "license": "MIT",
   "type": "module",
+  "main": "dist/index.js",
   "bin": {
     "pi-acp": "dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsup",
