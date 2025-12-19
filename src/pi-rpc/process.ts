@@ -10,10 +10,13 @@ type PiRpcCommand =
   | { type: "set_model"; id?: string; provider: string; modelId: string }
   // Thinking
   | { type: "set_thinking_level"; id?: string; level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" }
+  // Queue Mode
+  | { type: "set_queue_mode"; id?: string; mode: "all" | "one-at-a-time" }
   // Compaction
   | { type: "compact"; id?: string; customInstructions?: string }
   | { type: "set_auto_compaction"; id?: string; enabled: boolean }
   // Session
+  | { type: "get_session_stats"; id?: string }
   | { type: "export_html"; id?: string; outputPath?: string }
   | { type: "switch_session"; id?: string; sessionPath: string }
   // Messages
@@ -156,6 +159,11 @@ export class PiRpcProcess {
     if (!res.success) throw new Error(`pi set_thinking_level failed: ${res.error ?? JSON.stringify(res.data)}`)
   }
 
+  async setQueueMode(mode: "all" | "one-at-a-time"): Promise<void> {
+    const res = await this.request({ type: "set_queue_mode", mode })
+    if (!res.success) throw new Error(`pi set_queue_mode failed: ${res.error ?? JSON.stringify(res.data)}`)
+  }
+
   async compact(customInstructions?: string): Promise<unknown> {
     const res = await this.request({ type: "compact", customInstructions })
     if (!res.success) throw new Error(`pi compact failed: ${res.error ?? JSON.stringify(res.data)}`)
@@ -165,6 +173,12 @@ export class PiRpcProcess {
   async setAutoCompaction(enabled: boolean): Promise<void> {
     const res = await this.request({ type: "set_auto_compaction", enabled })
     if (!res.success) throw new Error(`pi set_auto_compaction failed: ${res.error ?? JSON.stringify(res.data)}`)
+  }
+
+  async getSessionStats(): Promise<unknown> {
+    const res = await this.request({ type: "get_session_stats" })
+    if (!res.success) throw new Error(`pi get_session_stats failed: ${res.error ?? JSON.stringify(res.data)}`)
+    return res.data
   }
 
   async exportHtml(outputPath?: string): Promise<{ path: string }> {

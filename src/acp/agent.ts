@@ -19,9 +19,16 @@ import {
 import { SessionManager } from "./session.js";
 import { SessionStore } from "./session-store.js";
 import { PiRpcProcess } from "../pi-rpc/process.js";
-import { normalizePiAssistantText, normalizePiMessageText } from "./translate/pi-messages.js";
+import {
+  normalizePiAssistantText,
+  normalizePiMessageText,
+} from "./translate/pi-messages.js";
 import { promptToPiMessage } from "./translate/prompt.js";
-import { loadSlashCommands, parseCommandArgs, toAvailableCommands } from "./slash-commands.js";
+import {
+  loadSlashCommands,
+  parseCommandArgs,
+  toAvailableCommands,
+} from "./slash-commands.js";
 import { isAbsolute } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
@@ -45,10 +52,23 @@ function builtinAvailableCommands(): AvailableCommand[] {
       name: "export",
       description: "Export session to an HTML file in the session cwd",
     },
+    {
+      name: "session",
+      description: "Show session stats (messages, tokens, cost, session file)",
+    },
+    {
+      name: "queue",
+      description:
+        "Set pi message queue mode (all | one-at-a-time(recommended))",
+      input: { hint: "all | one-at-a-time" },
+    },
   ];
 }
 
-function mergeCommands(a: AvailableCommand[], b: AvailableCommand[]): AvailableCommand[] {
+function mergeCommands(
+  a: AvailableCommand[],
+  b: AvailableCommand[],
+): AvailableCommand[] {
   // Preserve order, de-dupe by name (first wins).
   const out: AvailableCommand[] = [];
   const seen = new Set<string>();
@@ -171,7 +191,8 @@ export class PiAcpAgent implements ACPAgent {
         const res = await session.proc.compact(customInstructions);
 
         const r: any = res && typeof res === "object" ? (res as any) : null;
-        const tokensBefore = typeof r?.tokensBefore === "number" ? r.tokensBefore : null;
+        const tokensBefore =
+          typeof r?.tokensBefore === "number" ? r.tokensBefore : null;
         const summary = typeof r?.summary === "string" ? r.summary : null;
 
         const headerLines = [
@@ -192,21 +213,114 @@ export class PiAcpAgent implements ACPAgent {
         return { stopReason: "end_turn" };
       }
 
+      if (cmd === "session") {
+        const stats = (await session.proc.getSessionStats()) as any;
+
+        const lines: string[] = [];
+        if (stats?.sessionId) lines.push(`Session: ${stats.sessionId}`);
+        if (stats?.sessionFile)
+          lines.push(`Session file: ${stats.sessionFile}`);
+        if (typeof stats?.totalMessages === "number")
+          lines.push(`Messages: ${stats.totalMessages}`);
+
+        if (typeof stats?.cost === "number") lines.push(`Cost: ${stats.cost}`);
+
+        const t = stats?.tokens;
+        if (t && typeof t === "object") {
+          const parts: string[] = [];
+          if (typeof t.input === "number") parts.push(`in ${t.input}`);
+          if (typeof t.output === "number") parts.push(`out ${t.output}`);
+          if (typeof t.cacheRead === "number")
+            parts.push(`cache read ${t.cacheRead}`);
+          if (typeof t.cacheWrite === "number")
+            parts.push(`cache write ${t.cacheWrite}`);
+          if (typeof t.total === "number") parts.push(`total ${t.total}`);
+          if (parts.length) lines.push(`Tokens: ${parts.join(", ")}`);
+        }
+
+        // Fallback if stats shape changes.
+        const text = lines.length
+          ? lines.join("\n")
+          : `Session stats:\n${JSON.stringify(stats, null, 2)}`;
+
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text },
+          },
+        });
+
+        return { stopReason: "end_turn" };
+      }
+
+      if (cmd === "queue") {
+        const modeRaw = String(args[0] ?? "").toLowerCase();
+        const state = (await session.proc.getState()) as any;
+        const current = String(state?.queueMode ?? "");
+
+        // If no arg, just report current.
+        if (!modeRaw) {
+          await this.conn.sessionUpdate({
+            sessionId: session.sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: {
+                type: "text",
+                text: `Queue mode: ${current || "unknown"}`,
+              },
+            },
+          });
+          return { stopReason: "end_turn" };
+        }
+
+        if (modeRaw !== "all" && modeRaw !== "one-at-a-time") {
+          await this.conn.sessionUpdate({
+            sessionId: session.sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: {
+                type: "text",
+                text: "Usage: /queue all | /queue one-at-a-time",
+              },
+            },
+          });
+          return { stopReason: "end_turn" };
+        }
+
+        await session.proc.setQueueMode(modeRaw as "all" | "one-at-a-time");
+
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `Queue mode set to: ${modeRaw}` },
+          },
+        });
+
+        return { stopReason: "end_turn" };
+      }
+
       if (cmd === "export") {
         // For now we always export into the session cwd and do not accept a user-provided path.
         // IMPORTANT: pi's export_html reads the session JSONL file. If it doesn't exist yet
         // (no messages) or is empty, pi throws and RPC mode emits an uncorrelated parse error
         // (no id), which would otherwise hang our request. So we guard here.
         const state = (await session.proc.getState()) as any;
-        const sessionFile = typeof state?.sessionFile === "string" ? state.sessionFile : null;
-        const messageCount = typeof state?.messageCount === "number" ? state.messageCount : 0;
+        const sessionFile =
+          typeof state?.sessionFile === "string" ? state.sessionFile : null;
+        const messageCount =
+          typeof state?.messageCount === "number" ? state.messageCount : 0;
 
         if (!sessionFile || messageCount === 0 || !existsSync(sessionFile)) {
           await this.conn.sessionUpdate({
             sessionId: session.sessionId,
             update: {
               sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: "Nothing to export yet (no session messages). Send a prompt first." },
+              content: {
+                type: "text",
+                text: "Nothing to export yet (no session messages). Send a prompt first.",
+              },
             },
           });
           return { stopReason: "end_turn" };
@@ -219,7 +333,10 @@ export class PiAcpAgent implements ACPAgent {
               sessionId: session.sessionId,
               update: {
                 sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: "Nothing to export yet (empty session file). Send a prompt first." },
+                content: {
+                  type: "text",
+                  text: "Nothing to export yet (empty session file). Send a prompt first.",
+                },
               },
             });
             return { stopReason: "end_turn" };
@@ -229,14 +346,20 @@ export class PiAcpAgent implements ACPAgent {
             sessionId: session.sessionId,
             update: {
               sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: "Couldn't read session file for export. Try sending a prompt first." },
+              content: {
+                type: "text",
+                text: "Couldn't read session file for export. Try sending a prompt first.",
+              },
             },
           });
           return { stopReason: "end_turn" };
         }
 
         const safeSessionId = session.sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
-        const outputPath = join(session.cwd, `pi-session-${safeSessionId}.html`);
+        const outputPath = join(
+          session.cwd,
+          `pi-session-${safeSessionId}.html`,
+        );
 
         let resultPath = "";
         try {
@@ -247,7 +370,10 @@ export class PiAcpAgent implements ACPAgent {
             sessionId: session.sessionId,
             update: {
               sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: `Export failed: ${String(e?.message ?? e)}` },
+              content: {
+                type: "text",
+                text: `Export failed: ${String(e?.message ?? e)}`,
+              },
             },
           });
           return { stopReason: "end_turn" };
@@ -258,7 +384,10 @@ export class PiAcpAgent implements ACPAgent {
             sessionId: session.sessionId,
             update: {
               sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: "Export failed: no output path returned by pi." },
+              content: {
+                type: "text",
+                text: "Export failed: no output path returned by pi.",
+              },
             },
           });
           return { stopReason: "end_turn" };
@@ -286,7 +415,10 @@ export class PiAcpAgent implements ACPAgent {
           sessionId: session.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: `Exported session to ${resultPath}` },
+            content: {
+              type: "text",
+              text: `Exported session to ${resultPath}`,
+            },
           },
         });
 
@@ -296,8 +428,20 @@ export class PiAcpAgent implements ACPAgent {
       if (cmd === "autocompact") {
         const mode = (args[0] ?? "toggle").toLowerCase();
         let enabled: boolean | null = null;
-        if (mode === "on" || mode === "true" || mode === "enable" || mode === "enabled") enabled = true;
-        else if (mode === "off" || mode === "false" || mode === "disable" || mode === "disabled") enabled = false;
+        if (
+          mode === "on" ||
+          mode === "true" ||
+          mode === "enable" ||
+          mode === "enabled"
+        )
+          enabled = true;
+        else if (
+          mode === "off" ||
+          mode === "false" ||
+          mode === "disable" ||
+          mode === "disabled"
+        )
+          enabled = false;
 
         if (enabled === null) {
           // toggle: read current state and invert.
@@ -312,7 +456,10 @@ export class PiAcpAgent implements ACPAgent {
           sessionId: session.sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: `Auto-compaction ${enabled ? "enabled" : "disabled"}.` },
+            content: {
+              type: "text",
+              text: `Auto-compaction ${enabled ? "enabled" : "disabled"}.`,
+            },
           },
         });
 
@@ -324,9 +471,12 @@ export class PiAcpAgent implements ACPAgent {
 
     // ACP StopReason does not include "error"; if pi fails we map to end_turn for now,
     // unless we know this was a cancellation.
-    const stopReason: StopReason = result === "error"
-      ? (session.wasCancelRequested() ? "cancelled" : "end_turn")
-      : result;
+    const stopReason: StopReason =
+      result === "error"
+        ? session.wasCancelRequested()
+          ? "cancelled"
+          : "end_turn"
+        : result;
 
     return { stopReason };
   }
@@ -471,7 +621,9 @@ export class PiAcpAgent implements ACPAgent {
     await session.proc.setModel(provider, modelId);
   }
 
-  async setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
+  async setSessionMode(
+    params: SetSessionModeRequest,
+  ): Promise<SetSessionModeResponse> {
     const session = this.sessions.get(params.sessionId);
 
     const mode = String(params.modeId);
@@ -495,24 +647,43 @@ export class PiAcpAgent implements ACPAgent {
 }
 
 function isThinkingLevel(x: string): x is ThinkingLevel {
-  return x === "off" || x === "minimal" || x === "low" || x === "medium" || x === "high" || x === "xhigh";
+  return (
+    x === "off" ||
+    x === "minimal" ||
+    x === "low" ||
+    x === "medium" ||
+    x === "high" ||
+    x === "xhigh"
+  );
 }
 
 async function getThinkingState(proc: PiRpcProcess): Promise<{
-  availableModes: Array<{ id: string; name: string; description?: string | null }>;
+  availableModes: Array<{
+    id: string;
+    name: string;
+    description?: string | null;
+  }>;
   currentModeId: string;
 }> {
   // Ask pi for current thinking level.
   let current: ThinkingLevel = "medium";
   try {
     const state = (await proc.getState()) as any;
-    const tl = typeof state?.thinkingLevel === "string" ? state.thinkingLevel : null;
+    const tl =
+      typeof state?.thinkingLevel === "string" ? state.thinkingLevel : null;
     if (tl && isThinkingLevel(tl)) current = tl;
   } catch {
     // ignore
   }
 
-  const available: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+  const available: ThinkingLevel[] = [
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+  ];
 
   return {
     currentModeId: current,
