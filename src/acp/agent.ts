@@ -101,8 +101,13 @@ export class PiAcpAgent implements ACPAgent {
     const { message, attachments } = promptToPiMessage(params.prompt);
 
     const result = await session.prompt(message, attachments);
-    // ACP StopReason does not include "error"; map to end_turn for now.
-    const stopReason: StopReason = result === "error" ? "end_turn" : result;
+
+    // ACP StopReason does not include "error"; if pi fails we map to end_turn for now,
+    // unless we know this was a cancellation.
+    const stopReason: StopReason = result === "error"
+      ? (session.wasCancelRequested() ? "cancelled" : "end_turn")
+      : result;
+
     return { stopReason };
   }
 

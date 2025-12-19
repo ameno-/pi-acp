@@ -9,6 +9,11 @@ test("toolResultToText: extracts text from content blocks", () => {
   assert.equal(text, "hello world");
 });
 
+test("toolResultToText: prefers details.diff when present", () => {
+  const text = toolResultToText({ details: { diff: "--- a\n+++ b\n" } });
+  assert.equal(text, "--- a\n+++ b\n");
+});
+
 test("toolResultToText: falls back to JSON", () => {
   const text = toolResultToText({ a: 1 });
   assert.match(text, /"a": 1/);

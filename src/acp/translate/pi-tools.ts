@@ -12,6 +12,12 @@ export function toolResultToText(result: unknown): string {
     if (texts.length) return texts.join("");
   }
 
+  // Some pi tools return a unified diff in `details.diff`.
+  const diff = (result as any)?.details?.diff;
+  if (typeof diff === "string" && diff.trim()) {
+    return diff;
+  }
+
   try {
     return JSON.stringify(result, null, 2);
   } catch {

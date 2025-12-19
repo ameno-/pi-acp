@@ -96,6 +96,10 @@ export class PiAcpSession {
   private pendingTurn: PendingTurn | null = null
   private currentToolCalls = new Set<string>()
 
+  // Ensure `session/update` notifications are sent in order and can be awaited
+  // before completing a `session/prompt` request.
+  private lastEmit: Promise<void> = Promise.resolve()
+
   constructor(opts: {
     sessionId: string
     cwd: string
@@ -124,9 +128,12 @@ export class PiAcpSession {
     // Kick off pi, but completion is determined by pi events (`turn_end`) not the RPC response.
     this.proc.prompt(message, attachments).catch((err) => {
       // If the subprocess errors before we get a `turn_end`, treat as error unless cancelled.
-      const reason: StopReason = this.cancelRequested ? "cancelled" : "error"
-      this.pendingTurn?.resolve(reason)
-      this.pendingTurn = null
+      // Also ensure we flush any already-enqueued updates first.
+      void this.flushEmits().finally(() => {
+        const reason: StopReason = this.cancelRequested ? "cancelled" : "error"
+        this.pendingTurn?.resolve(reason)
+        this.pendingTurn = null
+      })
       void err
     })
 
@@ -138,11 +145,27 @@ export class PiAcpSession {
     await this.proc.abort()
   }
 
-  private async emit(update: SessionUpdate): Promise<void> {
-    await this.conn.sessionUpdate({
-      sessionId: this.sessionId,
-      update,
-    })
+  wasCancelRequested(): boolean {
+    return this.cancelRequested
+  }
+
+  private emit(update: SessionUpdate): void {
+    // Serialize update delivery.
+    this.lastEmit = this.lastEmit
+      .then(() =>
+        this.conn.sessionUpdate({
+          sessionId: this.sessionId,
+          update,
+        }),
+      )
+      .catch(() => {
+        // Ignore notification errors (client may have gone away). We still want
+        // prompt completion.
+      })
+  }
+
+  private async flushEmits(): Promise<void> {
+    await this.lastEmit
   }
 
   private handlePiEvent(ev: PiRpcEvent) {
@@ -152,7 +175,7 @@ export class PiAcpSession {
       case "message_update": {
         const ame = (ev as any).assistantMessageEvent
         if (ame?.type === "text_delta" && typeof ame.delta === "string") {
-          void this.emit({
+          this.emit({
             sessionUpdate: "agent_message_chunk",
             content: { type: "text", text: ame.delta } satisfies ContentBlock,
           })
@@ -168,14 +191,22 @@ export class PiAcpSession {
 
         this.currentToolCalls.add(toolCallId)
 
-        void this.emit({
+        // Spec-style lifecycle: announce the tool call as pending, then mark in_progress.
+        this.emit({
           sessionUpdate: "tool_call",
           toolCallId,
           title: toolName,
           kind: toToolKind(toolName),
-          status: "in_progress",
+          status: "pending",
           rawInput: args,
         })
+
+        this.emit({
+          sessionUpdate: "tool_call_update",
+          toolCallId,
+          status: "in_progress",
+        })
+
         break
       }
 
@@ -186,7 +217,7 @@ export class PiAcpSession {
         const partial = (ev as any).partialResult
         const text = toolResultToText(partial)
 
-        void this.emit({
+        this.emit({
           sessionUpdate: "tool_call_update",
           toolCallId,
           status: "in_progress",
@@ -206,7 +237,7 @@ export class PiAcpSession {
         const isError = Boolean((ev as any).isError)
         const text = toolResultToText(result)
 
-        void this.emit({
+        this.emit({
           sessionUpdate: "tool_call_update",
           toolCallId,
           status: isError ? "failed" : "completed",
@@ -221,9 +252,13 @@ export class PiAcpSession {
       }
 
       case "turn_end": {
-        const reason: StopReason = this.cancelRequested ? "cancelled" : "end_turn"
-        this.pendingTurn?.resolve(reason)
-        this.pendingTurn = null
+        // Ensure all updates derived from pi events are delivered before we resolve
+        // the ACP `session/prompt` request.
+        void this.flushEmits().finally(() => {
+          const reason: StopReason = this.cancelRequested ? "cancelled" : "end_turn"
+          this.pendingTurn?.resolve(reason)
+          this.pendingTurn = null
+        })
         break
       }
 

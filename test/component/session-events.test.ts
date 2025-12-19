@@ -49,16 +49,23 @@ test("PiAcpSession: emits tool_call + tool_call_update + completes", async () =>
 
   await new Promise((r) => setTimeout(r, 0));
 
-  assert.equal(conn.updates.length, 3);
+  assert.equal(conn.updates.length, 4);
+
   assert.equal(conn.updates[0]!.update.sessionUpdate, "tool_call");
   assert.equal((conn.updates[0]!.update as any).toolCallId, "t1");
-  assert.equal((conn.updates[0]!.update as any).status, "in_progress");
+  assert.equal((conn.updates[0]!.update as any).status, "pending");
 
   assert.equal(conn.updates[1]!.update.sessionUpdate, "tool_call_update");
+  assert.equal((conn.updates[1]!.update as any).toolCallId, "t1");
   assert.equal((conn.updates[1]!.update as any).status, "in_progress");
 
   assert.equal(conn.updates[2]!.update.sessionUpdate, "tool_call_update");
-  assert.equal((conn.updates[2]!.update as any).status, "completed");
+  assert.equal((conn.updates[2]!.update as any).toolCallId, "t1");
+  assert.equal((conn.updates[2]!.update as any).status, "in_progress");
+
+  assert.equal(conn.updates[3]!.update.sessionUpdate, "tool_call_update");
+  assert.equal((conn.updates[3]!.update as any).toolCallId, "t1");
+  assert.equal((conn.updates[3]!.update as any).status, "completed");
 });
 
 test("PiAcpSession: prompt resolves end_turn on turn_end", async () => {

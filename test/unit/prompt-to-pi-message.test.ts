@@ -13,6 +13,54 @@ test("promptToPiMessage: concatenates text and resource links", () => {
   assert.deepEqual(attachments, []);
 });
 
+test("promptToPiMessage: includes embedded resource text as marker", () => {
+  const { message, attachments } = promptToPiMessage([
+    {
+      type: "resource",
+      resource: {
+        uri: "file:///tmp/a.txt",
+        mimeType: "text/plain",
+        text: "hi",
+      },
+    },
+  ] as any);
+
+  assert.equal(message, "\n[Embedded Context] file:///tmp/a.txt (text/plain)\nhi");
+  assert.deepEqual(attachments, []);
+});
+
+test("promptToPiMessage: includes embedded resource blob as marker", () => {
+  const blob = Buffer.from("xyz", "utf8").toString("base64");
+
+  const { message, attachments } = promptToPiMessage([
+    {
+      type: "resource",
+      resource: {
+        uri: "file:///tmp/a.bin",
+        mimeType: "application/octet-stream",
+        blob,
+      },
+    },
+  ] as any);
+
+  assert.equal(
+    message,
+    "\n[Embedded Context] file:///tmp/a.bin (application/octet-stream, 3 bytes)",
+  );
+  assert.deepEqual(attachments, []);
+});
+
+test("promptToPiMessage: includes audio as marker", () => {
+  const data = Buffer.from("abc", "utf8").toString("base64");
+
+  const { message, attachments } = promptToPiMessage([
+    { type: "audio", mimeType: "audio/wav", data },
+  ] as any);
+
+  assert.equal(message, "\n[Audio] (audio/wav, 3 bytes) not supported by pi-acp");
+  assert.deepEqual(attachments, []);
+});
+
 test("promptToPiMessage: maps image to attachment", () => {
   const base64 = Buffer.from("abc", "utf8").toString("base64");
 
