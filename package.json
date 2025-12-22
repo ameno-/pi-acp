@@ -8,6 +8,10 @@
     "type": "git",
     "url": "git+https://github.com/svkozak/pi-acp.git"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "bugs": {
     "url": "https://github.com/svkozak/pi-acp/issues"
   },
