@@ -124,6 +124,8 @@ These are expanded adapter-side (pi RPC mode doesn’t expand them).
 - `/session` – show session stats (tokens/messages/cost/session file)
 - `/queue all|one-at-a-time` – set pi queue mode (unstable feature)
 - `/changelog` – print the installed pi changelog (best-effort)
+- `/steering` - maps to `pi` Steering Mode, get/set
+- `/follow-up` - pats to `pi` Follow-up Mode, get/set
 
 Other built-in commands:
 
