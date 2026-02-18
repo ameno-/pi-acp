@@ -908,21 +908,63 @@ function buildStartupInfo(opts: {
 
   // Skills
   const skillsItems: string[] = []
-  const skillsDir = join(process.env.HOME ?? '', '.pi', 'agent', 'skills')
-  try {
-    const entries = readdirSync(skillsDir)
-    for (const e of entries) {
-      const p = join(skillsDir, e)
-      if (statSync(p).isDirectory()) {
-        const skillFile = join(p, 'SKILL.md')
-        if (existsSync(skillFile)) skillsItems.push(skillFile)
-      } else if (e === 'SKILL.md') {
-        skillsItems.push(p)
+
+  const pushSkillFromRoot = (root: string) => {
+    try {
+      // Direct .md files in root
+      for (const e of readdirSync(root)) {
+        const p = join(root, e)
+        try {
+          const st = statSync(p)
+          if (st.isFile() && e.toLowerCase().endsWith('.md')) {
+            skillsItems.push(p)
+          }
+        } catch {
+          // ignore
+        }
       }
+
+      // Recursive SKILL.md under subdirectories
+      const stack: string[] = [root]
+      while (stack.length) {
+        const dir = stack.pop()!
+        let entries: string[] = []
+        try {
+          entries = readdirSync(dir)
+        } catch {
+          continue
+        }
+
+        for (const name of entries) {
+          // Skip obvious noise
+          if (name === 'node_modules' || name === '.git') continue
+          const p = join(dir, name)
+          let st
+          try {
+            st = statSync(p)
+          } catch {
+            continue
+          }
+          if (st.isDirectory()) {
+            stack.push(p)
+          } else if (st.isFile() && name === 'SKILL.md') {
+            skillsItems.push(p)
+          }
+        }
+      }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
+
+  // Global skills
+  const globalSkillsDir = join(process.env.HOME ?? '', '.pi', 'agent', 'skills')
+  pushSkillFromRoot(globalSkillsDir)
+
+  // Project skills (.pi/skills)
+  const projectSkillsDir = join(opts.cwd, '.pi', 'skills')
+  pushSkillFromRoot(projectSkillsDir)
+
   addSection('Skills', skillsItems)
 
   // Prompts
