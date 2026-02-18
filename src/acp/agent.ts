@@ -30,6 +30,15 @@ import { spawnSync } from 'node:child_process'
 
 type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 
+function booleanEnv(name: string, defaultValue: boolean): boolean {
+  const raw = process.env[name]
+  if (raw == null) return defaultValue
+  const v = String(raw).trim().toLowerCase()
+  if (v === 'true') return true
+  if (v === 'false') return false
+  return defaultValue
+}
+
 function builtinAvailableCommands(): AvailableCommand[] {
   return [
     {
@@ -138,9 +147,11 @@ export class PiAcpAgent implements ACPAgent {
     const models = await getModelState(session.proc)
     const thinking = await getThinkingState(session.proc)
 
+    const showStartupInfo = booleanEnv('PI_ACP_STARTUP_INFO', true)
+
     // In pi --mode rpc there typically is no human-readable prelude on stdout.
     // So we synthesize a similar "startup info" block from local data and emit it.
-    const preludeText = buildStartupInfo({ cwd: params.cwd, fileCommands })
+    const preludeText = showStartupInfo ? buildStartupInfo({ cwd: params.cwd, fileCommands }) : ''
     if (preludeText) session.setStartupInfo(preludeText)
 
     const response = {
@@ -156,7 +167,7 @@ export class PiAcpAgent implements ACPAgent {
 
     // Try to send it immediately after session/new returns; if the client ignores it,
     // it will still be emitted as the first chunk of the first prompt.
-    setTimeout(() => session.sendStartupInfoIfPending(), 0)
+    if (showStartupInfo) setTimeout(() => session.sendStartupInfoIfPending(), 0)
 
     // Advertise slash commands (ACP: available_commands_update)
     // Important: some clients (e.g. Zed) will ignore notifications for an unknown sessionId.
@@ -661,8 +672,10 @@ export class PiAcpAgent implements ACPAgent {
     const models = await getModelState(proc)
     const thinking = await getThinkingState(proc)
 
+    const showStartupInfo = booleanEnv('PI_ACP_STARTUP_INFO', true)
+
     // Emit a synthesized startup info block for loaded sessions too.
-    const preludeText = buildStartupInfo({ cwd: params.cwd, fileCommands })
+    const preludeText = showStartupInfo ? buildStartupInfo({ cwd: params.cwd, fileCommands }) : ''
     if (preludeText) session.setStartupInfo(preludeText)
 
     const response = {
@@ -675,7 +688,7 @@ export class PiAcpAgent implements ACPAgent {
       }
     }
 
-    setTimeout(() => session.sendStartupInfoIfPending(), 0)
+    if (showStartupInfo) setTimeout(() => session.sendStartupInfoIfPending(), 0)
 
     // Advertise slash commands after the response so the client knows the session exists.
     setTimeout(() => {
