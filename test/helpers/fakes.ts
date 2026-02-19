@@ -36,6 +36,18 @@ export class FakePiRpcProcess {
   async abort(): Promise<void> {
     this.abortCount += 1
   }
+
+  async getState(): Promise<any> {
+    return {}
+  }
+
+  async getAvailableModels(): Promise<any> {
+    return { models: [] }
+  }
+
+  async getMessages(): Promise<any> {
+    return { messages: [] }
+  }
 }
 
 export function asAgentConn(conn: FakeAgentSideConnection): AgentSideConnection {

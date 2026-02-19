@@ -15,7 +15,7 @@ test('PiAcpAgent: /steering reports current steeringMode', async () => {
   const proc = new FakePiRpcProcess() as any
   proc.getState = async () => ({ steeringMode: 'all' })
 
-  const agent = new PiAcpAgent(asAgentConn(conn), {} as any)
+  const agent = new PiAcpAgent(asAgentConn(conn))
   ;(agent as any).sessions = new FakeSessions({ sessionId: 's1', proc }) as any
 
   const res = await agent.prompt({
@@ -38,7 +38,7 @@ test('PiAcpAgent: /steering sets steering mode', async () => {
     setTo = m
   }
 
-  const agent = new PiAcpAgent(asAgentConn(conn), {} as any)
+  const agent = new PiAcpAgent(asAgentConn(conn))
   ;(agent as any).sessions = new FakeSessions({ sessionId: 's1', proc }) as any
 
   const res = await agent.prompt({
@@ -61,7 +61,7 @@ test('PiAcpAgent: /steering rejects invalid value', async () => {
     called = true
   }
 
-  const agent = new PiAcpAgent(asAgentConn(conn), {} as any)
+  const agent = new PiAcpAgent(asAgentConn(conn))
   ;(agent as any).sessions = new FakeSessions({ sessionId: 's1', proc }) as any
 
   const res = await agent.prompt({
@@ -80,7 +80,7 @@ test('PiAcpAgent: /follow-up reports current followUpMode', async () => {
   const proc = new FakePiRpcProcess() as any
   proc.getState = async () => ({ followUpMode: 'one-at-a-time' })
 
-  const agent = new PiAcpAgent(asAgentConn(conn), {} as any)
+  const agent = new PiAcpAgent(asAgentConn(conn))
   ;(agent as any).sessions = new FakeSessions({ sessionId: 's1', proc }) as any
 
   const res = await agent.prompt({
@@ -102,7 +102,7 @@ test('PiAcpAgent: /follow-up sets follow-up mode', async () => {
     setTo = m
   }
 
-  const agent = new PiAcpAgent(asAgentConn(conn), {} as any)
+  const agent = new PiAcpAgent(asAgentConn(conn))
   ;(agent as any).sessions = new FakeSessions({ sessionId: 's1', proc }) as any
 
   const res = await agent.prompt({
@@ -125,7 +125,7 @@ test('PiAcpAgent: /follow-up rejects invalid value', async () => {
     called = true
   }
 
-  const agent = new PiAcpAgent(asAgentConn(conn), {} as any)
+  const agent = new PiAcpAgent(asAgentConn(conn))
   ;(agent as any).sessions = new FakeSessions({ sessionId: 's1', proc }) as any
 
   const res = await agent.prompt({

@@ -6,12 +6,15 @@ import {
   type CancelNotification,
   type InitializeRequest,
   type InitializeResponse,
+  type ListSessionsRequest,
+  type ListSessionsResponse,
   type LoadSessionRequest,
   type LoadSessionResponse,
   type ModelInfo,
   type NewSessionRequest,
   type PromptRequest,
   type PromptResponse,
+  type SessionInfo,
   type SetSessionModeRequest,
   type SetSessionModeResponse,
   type StopReason
@@ -19,7 +22,9 @@ import {
 import { SessionManager } from './session.js'
 import { SessionStore } from './session-store.js'
 import { PiRpcProcess } from '../pi-rpc/process.js'
+import { listPiSessions, findPiSessionFile } from './pi-sessions.js'
 import { normalizePiAssistantText, normalizePiMessageText } from './translate/pi-messages.js'
+import { toolResultToText } from './translate/pi-tools.js'
 import { promptToPiMessage } from './translate/prompt.js'
 import { loadSlashCommands, parseCommandArgs, toAvailableCommands } from './slash-commands.js'
 import { isAbsolute } from 'node:path'
@@ -98,6 +103,9 @@ export class PiAcpAgent implements ACPAgent {
   private readonly sessions = new SessionManager()
   private readonly store = new SessionStore()
 
+  // Remember recent session cwd and use it as the default filter.
+  private lastSessionCwd: string | null = null
+
   constructor(conn: AgentSideConnection, _config?: unknown) {
     this.conn = conn
     void _config
@@ -124,7 +132,11 @@ export class PiAcpAgent implements ACPAgent {
           audio: false,
           embeddedContext: false
         },
-        sessionCapabilities: {}
+        sessionCapabilities: {
+          // **UNSTABLE** ACP capability used by Zed's codex-acp adapter.
+          // Enables a native session picker in clients that support it.
+          list: {}
+        }
       }
     }
   }
@@ -133,6 +145,8 @@ export class PiAcpAgent implements ACPAgent {
     if (!isAbsolute(params.cwd)) {
       throw RequestError.invalidParams(`cwd must be an absolute path: ${params.cwd}`)
     }
+
+    this.lastSessionCwd = params.cwd
 
     const fileCommands = loadSlashCommands(params.cwd)
 
@@ -601,21 +615,55 @@ export class PiAcpAgent implements ACPAgent {
     await session.cancel()
   }
 
+  async unstable_listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
+    // ACP: filter by cwd if provided.
+    // Zed currently sends `{}` (no cwd), so we default to the last session cwd to
+    // emulate pi's `/resume` picker (project-scoped).
+    const all = listPiSessions()
+
+    const effectiveCwd = (params as any).cwd ?? this.lastSessionCwd
+    const filtered = effectiveCwd ? all.filter(s => s.cwd === effectiveCwd) : all
+
+    // Cursor-based pagination (opaque cursor). For MVP, we use a simple numeric offset.
+    // If cursor is invalid, treat as 0.
+    const offset = params.cursor ? Number.parseInt(params.cursor, 10) : 0
+    const start = Number.isFinite(offset) && offset > 0 ? offset : 0
+
+    const PAGE_SIZE = 50
+    const page = filtered.slice(start, start + PAGE_SIZE)
+
+    const sessions: SessionInfo[] = page.map(s => ({
+      sessionId: s.sessionId,
+      cwd: s.cwd,
+      title: s.title,
+      updatedAt: s.updatedAt
+    }))
+
+    const nextCursor = start + PAGE_SIZE < filtered.length ? String(start + PAGE_SIZE) : null
+
+    return { sessions, nextCursor, _meta: {} }
+  }
+
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
     if (!isAbsolute(params.cwd)) {
       throw RequestError.invalidParams(`cwd must be an absolute path: ${params.cwd}`)
     }
 
+    this.lastSessionCwd = params.cwd
+
     // MVP: ignore mcpServers.
+    // Prefer ACP-created mapping first (fast path), otherwise scan pi sessions dir.
     const stored = this.store.get(params.sessionId)
-    if (!stored) {
+    const sessionFile = stored?.sessionFile ?? findPiSessionFile(params.sessionId)
+
+    if (!sessionFile) {
       throw RequestError.invalidParams(`Unknown sessionId: ${params.sessionId}`)
     }
 
-    // Spawn pi and point it directly at the stored session file.
+    // Spawn pi and point it directly at the session file.
     const proc = await PiRpcProcess.spawn({
       cwd: params.cwd,
-      sessionPath: stored.sessionFile
+      sessionPath: sessionFile
     })
 
     const fileCommands = loadSlashCommands(params.cwd)
@@ -632,7 +680,7 @@ export class PiAcpAgent implements ACPAgent {
     this.store.upsert({
       sessionId: params.sessionId,
       cwd: params.cwd,
-      sessionFile: stored.sessionFile
+      sessionFile
     })
 
     // Replay full conversation history.
@@ -667,28 +715,52 @@ export class PiAcpAgent implements ACPAgent {
           })
         }
       }
+
+      if (role === 'toolResult') {
+        const toolName = String((m as any)?.toolName ?? 'tool')
+        const toolCallId = String((m as any)?.toolCallId ?? crypto.randomUUID())
+        const isError = Boolean((m as any)?.isError)
+
+        // Create a synthetic ACP tool call to render historic tool usage.
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'tool_call',
+            toolCallId,
+            title: toolName,
+            kind: toolName === 'read' ? 'read' : toolName === 'write' || toolName === 'edit' ? 'edit' : 'other',
+            status: 'completed',
+            rawInput: null,
+            rawOutput: m
+          }
+        })
+
+        const text = toolResultToText(m)
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId,
+            status: isError ? 'failed' : 'completed',
+            content: text ? [{ type: 'content', content: { type: 'text', text } }] : null,
+            rawOutput: m
+          }
+        })
+      }
     }
 
     const models = await getModelState(proc)
     const thinking = await getThinkingState(proc)
-
-    const showStartupInfo = booleanEnv('PI_ACP_STARTUP_INFO', true)
-
-    // Emit a synthesized startup info block for loaded sessions too.
-    const preludeText = showStartupInfo ? buildStartupInfo({ cwd: params.cwd, fileCommands }) : ''
-    if (preludeText) session.setStartupInfo(preludeText)
 
     const response = {
       models,
       modes: thinking,
       _meta: {
         piAcp: {
-          startupInfo: preludeText || null
+          startupInfo: null
         }
       }
     }
-
-    if (showStartupInfo) setTimeout(() => session.sendStartupInfoIfPending(), 0)
 
     // Advertise slash commands after the response so the client knows the session exists.
     setTimeout(() => {
@@ -853,8 +925,14 @@ function isSemver(v: string): boolean {
 
 function compareSemver(a: string, b: string): number {
   // Very small comparator for x.y.z (ignores pre-release/build beyond making them "not greater" unless base differs)
-  const pa = a.split(/[.-]/).slice(0, 3).map(n => Number(n))
-  const pb = b.split(/[.-]/).slice(0, 3).map(n => Number(n))
+  const pa = a
+    .split(/[.-]/)
+    .slice(0, 3)
+    .map(n => Number(n))
+  const pb = b
+    .split(/[.-]/)
+    .slice(0, 3)
+    .map(n => Number(n))
   for (let i = 0; i < 3; i++) {
     const da = pa[i] ?? 0
     const db = pb[i] ?? 0
@@ -864,10 +942,7 @@ function compareSemver(a: string, b: string): number {
   return 0
 }
 
-function buildStartupInfo(opts: {
-  cwd: string
-  fileCommands: ReturnType<typeof loadSlashCommands>
-}): string {
+function buildStartupInfo(opts: { cwd: string; fileCommands: ReturnType<typeof loadSlashCommands> }): string {
   void opts.fileCommands
 
   const md: string[] = []
@@ -878,7 +953,9 @@ function buildStartupInfo(opts: {
   try {
     // No timeout here; in some environments process startup can be slow and we'd rather show the version.
     const piVersion = spawnSync('pi', ['--version'], { encoding: 'utf-8' })
-    const installed = String(piVersion.stdout ?? '').trim().replace(/^v/i, '')
+    const installed = String(piVersion.stdout ?? '')
+      .trim()
+      .replace(/^v/i, '')
     if (installed) {
       md.push(`pi v${installed}`)
       md.push('---')
@@ -891,7 +968,9 @@ function buildStartupInfo(opts: {
           encoding: 'utf-8',
           timeout: 800
         })
-        const latest = String(latestRes.stdout ?? '').trim().replace(/^v/i, '')
+        const latest = String(latestRes.stdout ?? '')
+          .trim()
+          .replace(/^v/i, '')
 
         if (latest && isSemver(latest) && isSemver(installed) && compareSemver(latest, installed) > 0) {
           updateNotice = `New version available: v${latest} (installed v${installed}). Run: \`npm i -g @mariozechner/pi-coding-agent\``
