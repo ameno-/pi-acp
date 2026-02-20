@@ -136,8 +136,6 @@ Other built-in commands:
 - `/thinking` - maps to 'mode' selector in Zed
 - `/clear` - not implemented (use ACP client 'new' command)
 
-The rest are not yet implemented due to ACP limitations (e.g. no history)
-
 ## Authentication / Setup (ACP Registry)
 
 This agent supports **Terminal Auth** for the ACP Registry.
