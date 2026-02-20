@@ -6,7 +6,7 @@ ACP ([Agent Client Protocol](https://agentclientprotocol.com/overview/introducti
 
 ## Status
 
-This is an MVP-style adapter intended to be useful today and easy to iterate on. It intentionally leaves some ACP features unimplemented (see [Limitations](#limitations)).
+This is an MVP-style adapter intended to be useful today and easy to iterate on. Some ACP features may not be unimplemented or are not supported (see [Limitations](#limitations)). Development is centered around Zed editor support, other clients may have varying levels of compatibility.
 
 ## How it works
 
@@ -189,7 +189,7 @@ Project layout:
 - MCP servers are accepted in ACP params and stored in session state, but not wired through to pi.
 - Assistant streaming is currently sent as `agent_message_chunk` (no separate thought stream).
 - Queue is implemented client-side and should work like pi's `one-at-a-time`
-- ACP clients don't yet suport session history, but ACP sessions from `pi-acp` can be `/resume`d in pi directly
+- ~~ACP clients don't yet suport session history, but ACP sessions from `pi-acp` can be `/resume`d in pi directly~~ Session loading / history is now supported (in Zed) and maps to pi's session files. Sessions can be resumed both in `pi` and in the ACP client.
 
 ## License
 
