@@ -33,6 +33,8 @@ High-level mapping:
   - Adds a small set of built-in commands for headless/editor usage
 - Skills are loaded by pi directly and are available in ACP sessions
 - (Zed) On session start, `pi-acp` posts a markdown “startup info” block (pi version, context file, skills, prompts, extensions)
+- (Zed) By default, `pi-acp` emits a short markdown “startup info” block into the session (pi version, context, skills, prompts, extensions - similar to `pi` in the terminal). You can disable it by setting: `PI_ACP_STARTUP_INFO=false` (see below)
+- (Zed) Session history is supported in Zed starting with [`v0.225.0`](https://zed.dev/releases/preview/0.225.0)
 
 ## Prerequisites
 
@@ -52,7 +54,7 @@ npm install -g @mariozechner/pi-coding-agent
 
 Add the following to your Zed `settngs.json`:
 
-#### Using with `npx` (no global install needed):
+#### Using with `npx` (no global install needed, always loads the latest version):
 
 ```json
   "agent_servers": {
@@ -102,24 +104,6 @@ Point your ACP client to the built `dist/index.js`:
       "env": {}
     }
   }
-```
-
-## Features
-
-### Startup info message (Zed)
-
-By default, `pi-acp` emits a short markdown “startup info” block into the session (pi version, context, skills, prompts, extensions).
-
-Disable it by setting:
-
-- `PI_ACP_STARTUP_INFO=false`
-
-In Zed:
-
-```json
-"env": {
-  "PI_ACP_STARTUP_INFO": "false"
-}
 ```
 
 ### Slash commands
