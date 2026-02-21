@@ -54,7 +54,7 @@ setTimeout(() => {
 // Replace dummy session id once we see session/new response
 agent.stdout.on('data', d => {
   const s = d.toString('utf8')
-  const m = s.match(/"id":2,[^\n]*"result":\{[^\}]*"sessionId":"([^"]+)"/)
+  const m = s.match(/"id":2,[^\n]*"result":\{[^}]*"sessionId":"([^"]+)"/)
   if (m) {
     const sid = m[1]
     // resend prompt with real session id
