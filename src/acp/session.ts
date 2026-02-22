@@ -32,7 +32,7 @@ type PendingTurn = {
 
 type QueuedTurn = {
   message: string
-  attachments: unknown[]
+  images: unknown[]
   resolve: (reason: StopReason) => void
   reject: (err: unknown) => void
 }
@@ -190,7 +190,7 @@ export class PiAcpSession {
     })
   }
 
-  async prompt(message: string, attachments: unknown[] = []): Promise<StopReason> {
+  async prompt(message: string, images: unknown[] = []): Promise<StopReason> {
     // If we have startup info pending, emit it as the first chunk of the first turn.
     // This is more reliable than sending a standalone sessionUpdate right after session/new,
     // because some clients won't render agent messages until a prompt occurs.
@@ -206,7 +206,7 @@ export class PiAcpSession {
     const expandedMessage = expandSlashCommand(message, this.fileCommands)
 
     const turnPromise = new Promise<StopReason>((resolve, reject) => {
-      const queued: QueuedTurn = { message: expandedMessage, attachments, resolve, reject }
+      const queued: QueuedTurn = { message: expandedMessage, images, resolve, reject }
 
       // If a turn is already running, enqueue.
       if (this.pendingTurn) {
@@ -299,7 +299,7 @@ export class PiAcpSession {
     // Kick off pi, but completion is determined by pi events, not the RPC response.
     // Important: pi may emit multiple `turn_end` events (e.g. when the model requests tools).
     // The full prompt is finished when we see `agent_end`.
-    this.proc.prompt(t.message, t.attachments).catch(err => {
+    this.proc.prompt(t.message, t.images).catch(err => {
       // If the subprocess errors before we get an `agent_end`, treat as error unless cancelled.
       // Also ensure we flush any already-enqueued updates first.
       void this.flushEmits().finally(() => {

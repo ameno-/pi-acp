@@ -17,7 +17,7 @@ This is an MVP-style adapter intended to be useful today and easy to iterate on.
 High-level mapping:
 
 - `session/new` → spawn `pi --mode rpc` (working directory = `cwd`)
-- `session/prompt` → send `{ type: "prompt", message, attachments }` to pi and stream events back as `session/update`
+- `session/prompt` → send `{ type: "prompt", message, images }` to pi and stream events back as `session/update`
 - `session/cancel` → send `{ type: "abort" }`
 
 ## Features

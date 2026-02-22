@@ -27,7 +27,7 @@ function stripAnsi(s: string): string {
 }
 
 type PiRpcCommand =
-  | { type: 'prompt'; id?: string; message: string; attachments?: unknown[] }
+  | { type: 'prompt'; id?: string; message: string; images?: unknown[] }
   | { type: 'abort'; id?: string }
   | { type: 'get_state'; id?: string }
   // Model
@@ -217,8 +217,8 @@ export class PiRpcProcess {
     return lines
   }
 
-  async prompt(message: string, attachments: unknown[] = []): Promise<void> {
-    const res = await this.request({ type: 'prompt', message, attachments })
+  async prompt(message: string, images: unknown[] = []): Promise<void> {
+    const res = await this.request({ type: 'prompt', message, images })
     if (!res.success) throw new Error(`pi prompt failed: ${res.error ?? JSON.stringify(res.data)}`)
   }
 

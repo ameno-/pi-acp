@@ -270,11 +270,11 @@ export class PiAcpAgent implements ACPAgent {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const session = this.sessions.get(params.sessionId)
 
-    const { message, attachments } = promptToPiMessage(params.prompt)
+    const { message, images } = promptToPiMessage(params.prompt)
 
     // Built-in ACP slash command handling (headless-friendly subset).
     // Note: file-based slash commands are expanded inside session.prompt().
-    if (attachments.length === 0 && message.trimStart().startsWith('/')) {
+    if (images.length === 0 && message.trimStart().startsWith('/')) {
       const trimmed = message.trim()
       const space = trimmed.indexOf(' ')
       const cmd = space === -1 ? trimmed.slice(1) : trimmed.slice(1, space)
@@ -663,7 +663,7 @@ export class PiAcpAgent implements ACPAgent {
       }
     }
 
-    const result = await session.prompt(message, attachments)
+    const result = await session.prompt(message, images)
 
     // ACP StopReason does not include "error"; if pi fails we map to end_turn for now,
     // unless we know this was a cancellation.
