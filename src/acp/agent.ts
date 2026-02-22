@@ -69,6 +69,11 @@ function builtinAvailableCommands(): AvailableCommand[] {
       description: 'Show session stats (messages, tokens, cost, session file)'
     },
     {
+      name: 'name',
+      description: 'Set session display name',
+      input: { hint: '<name>' }
+    },
+    {
       name: 'steering',
       description: 'Get/set pi steering message delivery mode (how queued steering messages are delivered)',
       input: { hint: '(no args to show) all | one-at-a-time' }
@@ -336,6 +341,57 @@ export class PiAcpAgent implements ACPAgent {
           update: {
             sessionUpdate: 'agent_message_chunk',
             content: { type: 'text', text }
+          }
+        })
+
+        return { stopReason: 'end_turn' }
+      }
+
+      if (cmd === 'name') {
+        const name = args.join(' ').trim()
+        if (!name) {
+          await this.conn.sessionUpdate({
+            sessionId: session.sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'text', text: 'Usage: /name <name>' }
+            }
+          })
+          return { stopReason: 'end_turn' }
+        }
+
+        try {
+          await session.proc.setSessionName(name)
+        } catch (e: any) {
+          const msg = String(e?.message ?? e)
+          const hint = /set_session_name/i.test(msg)
+            ? ' This requires a newer pi version that supports `set_session_name` in RPC mode.'
+            : ''
+
+          await this.conn.sessionUpdate({
+            sessionId: session.sessionId,
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              content: { type: 'text', text: `Failed to set session name: ${msg}${hint}` }
+            }
+          })
+          return { stopReason: 'end_turn' }
+        }
+
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'session_info_update',
+            title: name,
+            updatedAt: new Date().toISOString()
+          }
+        })
+
+        await this.conn.sessionUpdate({
+          sessionId: session.sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `Session name set: ${name}` }
           }
         })
 

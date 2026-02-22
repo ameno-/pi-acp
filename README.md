@@ -113,6 +113,7 @@ These are expanded adapter-side (pi RPC mode doesn’t expand them).
 - `/autocompact on|off|toggle` – toggle automatic compaction
 - `/export` – export the current session to HTML in the session `cwd`
 - `/session` – show session stats (tokens/messages/cost/session file)
+- `/name <name>` – set session display name
 - `/queue all|one-at-a-time` – set pi queue mode (unstable feature)
 - `/changelog` – print the installed pi changelog (best-effort)
 - `/steering` - maps to `pi` Steering Mode, get/set

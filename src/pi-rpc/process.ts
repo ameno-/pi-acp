@@ -43,6 +43,7 @@ type PiRpcCommand =
   | { type: 'set_auto_compaction'; id?: string; enabled: boolean }
   // Session
   | { type: 'get_session_stats'; id?: string }
+  | { type: 'set_session_name'; id?: string; name: string }
   | { type: 'export_html'; id?: string; outputPath?: string }
   | { type: 'switch_session'; id?: string; sessionPath: string }
   // Messages
@@ -275,6 +276,11 @@ export class PiRpcProcess {
     const res = await this.request({ type: 'get_session_stats' })
     if (!res.success) throw new Error(`pi get_session_stats failed: ${res.error ?? JSON.stringify(res.data)}`)
     return res.data
+  }
+
+  async setSessionName(name: string): Promise<void> {
+    const res = await this.request({ type: 'set_session_name', name })
+    if (!res.success) throw new Error(`pi set_session_name failed: ${res.error ?? JSON.stringify(res.data)}`)
   }
 
   async exportHtml(outputPath?: string): Promise<{ path: string }> {
