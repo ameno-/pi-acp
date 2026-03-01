@@ -125,12 +125,19 @@ export class PiAcpAgent implements ACPAgent {
     this.conn = conn
     void _config
 
-    const closed = (this.conn as any).closed
-    if (closed && typeof closed.finally === 'function') {
-      void closed.finally(() => {
-        this.sessions.disposeAll()
-      })
-    }
+    // Defer cleanup setup to avoid SDK initialization race condition
+    setTimeout(() => {
+      try {
+        const closed = (this.conn as any).closed
+        if (closed && typeof closed.finally === 'function') {
+          void closed.finally(() => {
+            this.sessions.disposeAll()
+          })
+        }
+      } catch {
+        // Ignore errors from SDK connection access
+      }
+    }, 0)
   }
 
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {

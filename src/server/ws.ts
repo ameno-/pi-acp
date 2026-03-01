@@ -1,6 +1,6 @@
 import { AgentSideConnection } from '@agentclientprotocol/sdk'
 import type { Stream } from '@agentclientprotocol/sdk'
-import { WebSocketServer, type WebSocket, type RawData } from 'ws'
+import { WebSocketServer, type WebSocket } from 'ws'
 import { PiAcpAgent } from '../acp/agent.js'
 import http from 'http'
 
@@ -65,7 +65,7 @@ function isRateLimited(meta: ConnectionMeta): boolean {
 function wsToStream(ws: WebSocket, meta: ConnectionMeta): Stream {
   const readable = new ReadableStream<any>({
     start(controller) {
-      ws.on('message', (data: RawData) => {
+      ws.on('message', data => {
         // Update activity
         meta.lastActivity = new Date()
 
@@ -80,6 +80,10 @@ function wsToStream(ws: WebSocket, meta: ConnectionMeta): Stream {
         try {
           const text = typeof data === 'string' ? data : data.toString('utf-8')
           const msg = JSON.parse(text)
+          // Filter out ping/pong control messages
+          if (msg && (msg.type === 'ping' || msg.type === 'pong')) {
+            return
+          }
           controller.enqueue(msg)
         } catch {
           // Ignore malformed frames.
@@ -231,9 +235,7 @@ export function startWsServer(opts: { host: string; port: number }) {
 
   // Create WebSocket server attached to HTTP server
   const wss = new WebSocketServer({
-    server: httpServer,
-    host: opts.host,
-    port: opts.port
+    server: httpServer
   })
 
   wss.on('connection', onConnection)
