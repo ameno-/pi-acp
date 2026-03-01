@@ -805,17 +805,20 @@ export class PiAcpAgent implements ACPAgent {
   }
 
   async unstable_listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
+    // Guard against undefined params (SDK validation may pass undefined)
+    const safeParams = params ?? {}
+    
     // ACP: filter by cwd if provided.
     // Zed currently sends `{}` (no cwd), so we default to the last session cwd to
     // emulate pi's `/resume` picker (project-scoped).
     const all = listPiSessions()
 
-    const effectiveCwd = (params as any).cwd ?? this.lastSessionCwd
+    const effectiveCwd = (safeParams as any).cwd ?? this.lastSessionCwd
     const filtered = effectiveCwd ? all.filter(s => s.cwd === effectiveCwd) : all
 
     // Cursor-based pagination (opaque cursor). For MVP, we use a simple numeric offset.
     // If cursor is invalid, treat as 0.
-    const offset = params.cursor ? Number.parseInt(params.cursor, 10) : 0
+    const offset = safeParams.cursor ? Number.parseInt(safeParams.cursor, 10) : 0
     const start = Number.isFinite(offset) && offset > 0 ? offset : 0
 
     const PAGE_SIZE = 50
