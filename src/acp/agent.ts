@@ -1,5 +1,4 @@
 import {
-  RequestError,
   type Agent as ACPAgent,
   type AgentSideConnection,
   type AuthenticateRequest,
@@ -41,6 +40,8 @@ import { join, dirname, basename } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { hasAnyPiAuthConfigured } from '../pi-auth/status.js'
 import { mkdirSync, copyFileSync, openSync, readSync, writeSync, closeSync } from 'node:fs'
+import { ACPMethods } from './protocol.js'
+import { ACPError, InvalidParamsError, InternalError, AuthRequiredError } from './errors.js'
 
 type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 
@@ -170,7 +171,7 @@ export class PiAcpAgent implements ACPAgent {
 
   async unstable_forkSession(params: ForkSessionRequest): Promise<ForkSessionResponse> {
     if (!isAbsolute(params.cwd)) {
-      throw RequestError.invalidParams(`cwd must be an absolute path: ${params.cwd}`)
+      throw new InvalidParamsError(`cwd must be an absolute path: ${params.cwd}`)
     }
 
     this.lastSessionCwd = params.cwd
@@ -178,7 +179,7 @@ export class PiAcpAgent implements ACPAgent {
     const stored = this.store.get(params.sessionId)
     const sourceSessionFile = stored?.sessionFile ?? findPiSessionFile(params.sessionId)
     if (!sourceSessionFile) {
-      throw RequestError.invalidParams(`Unknown sessionId: ${params.sessionId}`)
+      throw new InvalidParamsError(`Unknown sessionId: ${params.sessionId}`)
     }
 
     const forkSessionId = crypto.randomUUID()
@@ -218,7 +219,7 @@ export class PiAcpAgent implements ACPAgent {
 
   async newSession(params: NewSessionRequest) {
     if (!isAbsolute(params.cwd)) {
-      throw RequestError.invalidParams(`cwd must be an absolute path: ${params.cwd}`)
+      throw new InvalidParamsError(`cwd must be an absolute path: ${params.cwd}`)
     }
 
     this.lastSessionCwd = params.cwd
@@ -227,9 +228,9 @@ export class PiAcpAgent implements ACPAgent {
     // So we must detect that situation without spawning pi, and return AUTH_REQUIRED so clients
     // (e.g. Zed) can show the Authenticate banner and launch a terminal login.
     if (!hasAnyPiAuthConfigured()) {
-      throw RequestError.authRequired(
-        { authMethods: getAuthMethods() },
-        'Configure an API key or log in with an OAuth provider.'
+      throw new AuthRequiredError(
+        'Configure an API key or log in with an OAuth provider.',
+        getAuthMethods()
       )
     }
 
@@ -260,9 +261,9 @@ export class PiAcpAgent implements ACPAgent {
       } catch {
         // ignore
       }
-      throw RequestError.authRequired(
-        { authMethods: getAuthMethods() },
-        'Configure an API key or log in with an OAuth provider.'
+      throw new AuthRequiredError(
+        'Configure an API key or log in with an OAuth provider.',
+        getAuthMethods()
       )
     }
 
@@ -827,7 +828,7 @@ export class PiAcpAgent implements ACPAgent {
 
   async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
     if (!isAbsolute(params.cwd)) {
-      throw RequestError.invalidParams(`cwd must be an absolute path: ${params.cwd}`)
+      throw new InvalidParamsError(`cwd must be an absolute path: ${params.cwd}`)
     }
 
     this.lastSessionCwd = params.cwd
@@ -838,7 +839,7 @@ export class PiAcpAgent implements ACPAgent {
     const sessionFile = stored?.sessionFile ?? findPiSessionFile(params.sessionId)
 
     if (!sessionFile) {
-      throw RequestError.invalidParams(`Unknown sessionId: ${params.sessionId}`)
+      throw new InvalidParamsError(`Unknown sessionId: ${params.sessionId}`)
     }
 
     // Spawn pi and point it directly at the session file.
@@ -851,7 +852,7 @@ export class PiAcpAgent implements ACPAgent {
       })
     } catch (e: any) {
       if (e?.name === 'PiRpcSpawnError') {
-        throw RequestError.internalError({ code: e?.code }, String(e?.message ?? e))
+        throw new InternalError(String(e?.message ?? e), { code: e?.code })
       }
       throw e
     }
@@ -1030,7 +1031,7 @@ export class PiAcpAgent implements ACPAgent {
     }
 
     if (!provider || !modelId) {
-      throw RequestError.invalidParams(`Unknown modelId: ${params.modelId}`)
+      throw new InvalidParamsError(`Unknown modelId: ${params.modelId}`)
     }
 
     await session.proc.setModel(provider, modelId)
@@ -1041,7 +1042,7 @@ export class PiAcpAgent implements ACPAgent {
 
     const mode = String(params.modeId)
     if (!isThinkingLevel(mode)) {
-      throw RequestError.invalidParams(`Unknown modeId: ${mode}`)
+      throw new InvalidParamsError(`Unknown modeId: ${mode}`)
     }
 
     await session.proc.setThinkingLevel(mode)

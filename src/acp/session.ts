@@ -6,7 +6,8 @@ import type {
   ToolCallContent,
   ToolKind
 } from '@agentclientprotocol/sdk'
-import { RequestError } from '@agentclientprotocol/sdk'
+import { ACPMethods } from './protocol.js'
+import { ACPError, InternalError, InvalidParamsError } from './errors.js'
 import { maybeAuthRequiredError } from './auth-required.js'
 import { readFileSync } from 'node:fs'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
@@ -57,7 +58,7 @@ export class SessionManager {
       })
     } catch (e) {
       if (e instanceof PiRpcSpawnError) {
-        throw RequestError.internalError({ code: e.code }, e.message)
+        throw new InternalError(e.message, { code: e.code })
       }
       throw e
     }
@@ -91,7 +92,7 @@ export class SessionManager {
 
   get(sessionId: string): PiAcpSession {
     const s = this.sessions.get(sessionId)
-    if (!s) throw RequestError.invalidParams(`Unknown sessionId: ${sessionId}`)
+    if (!s) throw new InvalidParamsError(`Unknown sessionId: ${sessionId}`, { sessionId })
     return s
   }
 
@@ -263,7 +264,15 @@ export class PiAcpSession {
     }
 
     // Abort the currently running turn (if any). If nothing is running, this is a no-op.
-    await this.proc.abort()
+    try {
+      await this.proc.abort()
+    } catch (err) {
+      // Wrap unknown errors in ACPError for consistent error handling
+      if (!(err instanceof ACPError)) {
+        throw InternalError.fromCause(err)
+      }
+      throw err
+    }
   }
 
   wasCancelRequested(): boolean {
