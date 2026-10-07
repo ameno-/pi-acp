@@ -1,0 +1,23 @@
+# Lore
+
+`pi-acp` is the [Agent Client Protocol](https://agentclientprotocol.com/get-started/introduction) adapter for [`pi`](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) (formerly the "shitty coding agent"), maintained by Sergii Kozak and published as `pi-acp` on npm. The single commit on `main` is `f53eb8c2dd0ea4bb35ab3a1c5933232c3a36c9f1` ("fix: Handle undefined params in listSessions"), pushed on 2026-03-01 by `Ameno Osman <ameno.osman13@gmail.com>`. The commit graph has just the one snapshot; the repo is bootstrapped as a single squash.
+
+The adapter lives in roughly 3,250 lines of TypeScript across `src/acp/`, `src/pi-rpc/`, `src/pi-auth/`, and `src/server/`. It speaks ACP JSON-RPC 2.0 over stdio (with an experimental websocket transport) and bridges to a dedicated `pi --mode rpc` subprocess per ACP session — pi's RPC mode is effectively single-session, so the adapter spawns one process per `session/new` and tears it down with the ACP connection. The two halves share state through `~/.pi/pi-acp/session-map.json`, which records `{sessionId, cwd, sessionFile, updatedAt}` so that `session/load` can reattach an ACP session to the same pi JSONL the user previously persisted (and which `pi` itself will also see in its own session picker).
+
+The adapter's design choices follow from three constraints documented in `AGENTS.md`. First, **no ACP client-side FS/terminal delegation** is implemented: pi already reads, writes, and executes locally on the machine where the adapter runs, so the adapter does not advertise `fs/*` or `terminal/*` capabilities. Second, MCP servers are taken in params for forward-compatibility but **not** wired into the pi child process — see `src/acp/session.ts` (`mcpServers` is stored on the session and otherwise ignored). Third, **streaming is single-channel**: assistant tokens come out as `agent_message_chunk`, with the adapter promoting `thinking_delta` / `reasoning_delta` to `agent_thought_chunk`. Tool execution gets mapped to `tool_call` + `tool_call_update`; for the `edit` tool specifically, `src/acp/session.ts` snapshots the file before the tool runs and re-reads it after, so the adapter can emit a structured ACP `{ type: "diff", path, oldText, newText }` payload instead of a plain text representation.
+
+The slash-command layer is the most user-visible feature beyond the protocol wiring. `src/acp/slash-commands.ts` implements the same conventions pi uses in the terminal: file-based commands under `~/.pi/agent/prompts/**/*.md` (user) and `<cwd>/.pi/prompts/**/*.md` (project), parsed from frontmatter, with bash-style `\$1` / `\$@` argument substitution. pi RPC mode does not expand those itself, so the adapter does it on the per-session basis before `pi.prompt(...)`. A second source comes from pi's own `get_commands` RPC, translated by `src/acp/pi-commands.ts` into ACP `AvailableCommand[]` and merged with a fixed built-in set: `/compact`, `/autocompact`, `/export`, `/session`, `/name`, `/steering`, `/follow-up`, `/changelog`, plus `/model` and `/thinking` which map to ACP selectors, and `/queue` for setting pi queue mode. Skill commands appear as `/skill:<name>` when `enableSkillCommands` is `true` in pi settings.
+
+The current ACP client target is the [Zed](https://zed.dev) editor. Two Zed-specific features shape the public surface: a **markdown "startup info" block** is synthesized in `buildStartupInfo()` (in `src/acp/agent.ts`) and emitted either as `_meta.piAcp.startupInfo` on `session/new` or as the first chunk of the first prompt (Slack-friendly) — toggled with `PI_ACP_STARTUP_INFO` (default `true`); and **session history** is supported in Zed `>= v0.225.0`, with `unstable_listSessions` and `session/load` reading pi's own JSONL files. `AGENTS.md` mentions Zed as "current ACP client"; other clients may not advertise the `terminal-auth` meta or `unstable_*` capabilities, so compatibility is best-effort.
+
+Beyond the commit graph and the `README.md`, no further history surfaced. The repository was bootstrapped as a single squashed snapshot, and the wiki generation run on 2026-10-05 recorded the values in [By the numbers](by-the-numbers.md).
+
+### What an ACP handshake looks like
+
+A minimal first contact with the `pi-acp` adapter — the same payload that `scripts/smoke-acp.mjs` sends:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}
+{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/path/to/project","mcpServers":[]}}
+{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"<from-new-resp>","prompt":[{"type":"text","text":"Say hello in one short sentence."}]}}
+```
